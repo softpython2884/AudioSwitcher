@@ -38,9 +38,9 @@ $FragmentCasque = 'BlackShark'     # ton casque Razer USB
 # La duree interne de l'anim (~2.4s dont 1.25s de pause) est fixee plus bas.
 $CloseMs = 2550
 
-# Position : marge depuis le bord gauche (px) et hauteur depuis le bas (% de l'ecran)
-$GapLeftPx     = 28
-$BottomPercent = 0.20
+# Position : marge depuis le bord droit (px) et hauteur depuis le haut (% de l'ecran)
+$GapRightPx = 28
+$TopPercent = 0.20
 # ===============================================================================
 
 $LogFile = Join-Path $PSScriptRoot 'audio-switch.log'
@@ -267,9 +267,9 @@ public static class WinEx {
         } catch { Write-Log "exstyle: $($_.Exception.Message)" }
 
         $wa = [System.Windows.SystemParameters]::WorkArea
-        $margin = 32; $cardH = 76
-        $win.Left = $wa.Left + $GapLeftPx - $margin
-        $win.Top  = $wa.Bottom - ($wa.Height * $BottomPercent) - $margin - $cardH
+        $margin = 32; $cardW = 340; $cardH = 76
+        $win.Left = $wa.Right - $GapRightPx - $margin - $cardW
+        $win.Top  = $wa.Top + ($wa.Height * $TopPercent) - $margin
     })
 
     $timer = New-Object System.Windows.Threading.DispatcherTimer
