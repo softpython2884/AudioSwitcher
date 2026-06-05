@@ -2,7 +2,10 @@
 ================================================================================
   audio-switch.ps1
   Bascule la sortie audio (Ecran <-> Casque), deplace TOUTES les applis en cours
-  vers le nouveau peripherique, et affiche une animation bleue en bas a droite.
+  vers le nouveau peripherique, puis affiche une animation rouge AMD en bas a
+  gauche (remontee de ~20%).
+
+  L'ACTION (changement de sortie) est faite EN PREMIER, l'animation ensuite.
 
   Usage :
     powershell -ExecutionPolicy Bypass -File audio-switch.ps1 1     # -> Ecran
@@ -31,8 +34,13 @@ $SVCL = Join-Path $PSScriptRoot 'svcl.exe'
 $FragmentEcran  = 'VG34VQL3A'      # ton ecran (AMD High Definition Audio)
 $FragmentCasque = 'BlackShark'     # ton casque Razer USB
 
-# Duree d'affichage de l'animation, en millisecondes (entree + maintien + sortie)
-$ToastDurationMs = 2700
+# Delai avant fermeture de la fenetre d'animation, en ms (laisse finir l'anim).
+# La duree interne de l'anim (~2.4s dont 1.25s de pause) est fixee plus bas.
+$CloseMs = 2550
+
+# Position : marge depuis le bord gauche (px) et hauteur depuis le bas (% de l'ecran)
+$GapLeftPx     = 28
+$BottomPercent = 0.20
 # ===============================================================================
 
 $LogFile = Join-Path $PSScriptRoot 'audio-switch.log'
@@ -69,26 +77,26 @@ function Resolve-RenderDevice([string]$fragment, $items) {
             ($_.Name -and $_.Name -like "*$fragment*")
         )
     }
-    # On prefere l'entree "endpoint" complete (.\Render)
     $best = $cands | Where-Object { $_.'Command-Line Friendly ID' -like '*\Render' } | Select-Object -First 1
     if (-not $best) { $best = $cands | Select-Object -First 1 }
     return $best
 }
 
 # --- Geometries d'icones (24x24) ---------------------------------------------
-$IconMonitor  = 'M4 4 H20 A2 2 0 0 1 22 6 V15 A2 2 0 0 1 20 17 H13.2 V19 H16 A1 1 0 0 1 16 21 H8 A1 1 0 0 1 8 19 H10.8 V17 H4 A2 2 0 0 1 2 15 V6 A2 2 0 0 1 4 4 Z'
-$IconHeadset  = 'M3 13 V12 A9 9 0 0 1 21 12 V13 H17 V12 A5 5 0 0 0 7 12 V13 Z M3 13 H7 V19 A2 2 0 0 1 5 21 A2 2 0 0 1 3 19 Z M17 13 H21 V19 A2 2 0 0 1 19 21 A2 2 0 0 1 17 19 Z'
+$IconMonitor = 'M4 4 H20 A2 2 0 0 1 22 6 V15 A2 2 0 0 1 20 17 H13.2 V19 H16 A1 1 0 0 1 16 21 H8 A1 1 0 0 1 8 19 H10.8 V17 H4 A2 2 0 0 1 2 15 V6 A2 2 0 0 1 4 4 Z'
+$IconHeadset = 'M3 13 V12 A9 9 0 0 1 21 12 V13 H17 V12 A5 5 0 0 0 7 12 V13 Z M3 13 H7 V19 A2 2 0 0 1 5 21 A2 2 0 0 1 3 19 Z M17 13 H21 V19 A2 2 0 0 1 19 21 A2 2 0 0 1 17 19 Z'
 
-# --- Animation (overlay WPF) -------------------------------------------------
+# --- Animation overlay (style AMD, rouge) ------------------------------------
 function Show-Toast {
     param(
         [ValidateSet('ecran','casque')] [string]$Mode,
         [string]$DeviceName
     )
 
-    Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml | Out-Null
+    try { Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase | Out-Null }
+    catch { Write-Log "Add-Type WPF: $($_.Exception.Message)"; return }
 
-    if ($Mode -eq 'ecran') { $title = 'SORTIE ECRAN' ; $icon = $IconMonitor }
+    if ($Mode -eq 'ecran') { $title = 'SORTIE ÉCRAN' ; $icon = $IconMonitor }
     else                   { $title = 'SORTIE CASQUE'; $icon = $IconHeadset }
 
     $xaml = @'
@@ -96,102 +104,131 @@ function Show-Toast {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStartupLocation="Manual" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ShowInTaskbar="False" Topmost="True"
-        ShowActivated="False" ResizeMode="NoResize" SizeToContent="WidthAndHeight">
-  <Grid x:Name="Root" Margin="44" Opacity="0" RenderTransformOrigin="1,1">
-    <Grid.RenderTransform>
-      <TranslateTransform x:Name="SlideT" X="520" Y="0"/>
-    </Grid.RenderTransform>
-    <Border CornerRadius="16" Padding="22,18" BorderThickness="1.2">
+        ShowActivated="False" ResizeMode="NoResize" SizeToContent="WidthAndHeight"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
+
+  <Grid x:Name="Root" Margin="32" Width="340" Height="76"
+        HorizontalAlignment="Left" VerticalAlignment="Top">
+    <Grid.Clip>
+      <RectangleGeometry x:Name="EraseClip" Rect="0,0,340,76"/>
+    </Grid.Clip>
+
+    <!-- Panneau gris AMD (glisse depuis la gauche) -->
+    <Border x:Name="Card" Width="340" Height="76" CornerRadius="12" BorderThickness="1"
+            HorizontalAlignment="Left" VerticalAlignment="Top">
+      <Border.RenderTransform><TranslateTransform x:Name="CardT" X="-360"/></Border.RenderTransform>
       <Border.Background>
-        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-          <GradientStop Color="#F20D1426" Offset="0"/>
-          <GradientStop Color="#F2101D3A" Offset="1"/>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#FF202024" Offset="0"/>
+          <GradientStop Color="#FF141418" Offset="1"/>
         </LinearGradientBrush>
       </Border.Background>
       <Border.BorderBrush>
         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-          <GradientStop Color="#9048D6FF" Offset="0"/>
-          <GradientStop Color="#152A6CF7" Offset="1"/>
+          <GradientStop Color="#FF3A3A40" Offset="0"/>
+          <GradientStop Color="#FF202024" Offset="1"/>
         </LinearGradientBrush>
       </Border.BorderBrush>
       <Border.Effect>
-        <DropShadowEffect x:Name="Glow" Color="#33C8FF" BlurRadius="40" ShadowDepth="0" Opacity="0"/>
+        <DropShadowEffect x:Name="Shadow" Color="#000000" BlurRadius="16"
+                          ShadowDepth="6" Direction="270" Opacity="0"/>
       </Border.Effect>
-      <Grid>
+
+      <!-- Contenu (icone + texte) revele par la barre rouge -->
+      <Grid x:Name="Content" Margin="18,0,14,0">
+        <Grid.Clip><RectangleGeometry x:Name="ContentClip" Rect="0,0,0,76"/></Grid.Clip>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
-        <Grid Grid.Column="0" Width="58" Height="58" Margin="0,0,18,0"
-              RenderTransformOrigin="0.5,0.5">
-          <Grid.RenderTransform><ScaleTransform x:Name="BadgeScale" ScaleX="0.5" ScaleY="0.5"/></Grid.RenderTransform>
-          <Ellipse>
-            <Ellipse.Fill>
-              <RadialGradientBrush>
-                <GradientStop Color="#3848D6FF" Offset="0"/>
-                <GradientStop Color="#0048D6FF" Offset="1"/>
-              </RadialGradientBrush>
-            </Ellipse.Fill>
-          </Ellipse>
-          <Ellipse Stroke="#7048D6FF" StrokeThickness="1.4" Margin="3"/>
-          <Viewbox Width="30" Height="30" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Canvas Width="24" Height="24">
-              <Path x:Name="IconPath" Fill="#EAF6FF" Data="M0,0"/>
-            </Canvas>
-          </Viewbox>
-        </Grid>
+        <Viewbox Grid.Column="0" Width="26" Height="26" Margin="0,0,13,0"
+                 VerticalAlignment="Center" HorizontalAlignment="Center">
+          <Canvas Width="24" Height="24">
+            <Path x:Name="IconPath" Fill="#F4F4F6" Data="M0,0"/>
+          </Canvas>
+        </Viewbox>
         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-          <TextBlock x:Name="Kicker" Text="PERIPHERIQUE AUDIO" FontFamily="Segoe UI Semibold"
-                     FontSize="10" Foreground="#80B8D8FF"/>
           <TextBlock x:Name="Title" Text="SORTIE" FontFamily="Segoe UI" FontWeight="Bold"
-                     FontSize="21" Foreground="#FFFFFFFF" Margin="0,1,0,2"/>
+                     FontSize="20" Foreground="#FFF5F5F7"/>
           <TextBlock x:Name="Sub" Text="" FontFamily="Segoe UI" FontSize="11.5"
-                     Foreground="#9FB6CF" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
-          <Border Height="3" CornerRadius="2" Margin="0,9,0,0" Width="240" Background="#1FFFFFFF"
-                  HorizontalAlignment="Left">
-            <Border x:Name="Sweep" HorizontalAlignment="Left" Height="3" CornerRadius="2" Width="0">
-              <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                  <GradientStop Color="#48D6FF" Offset="0"/>
-                  <GradientStop Color="#2A6CF7" Offset="1"/>
-                </LinearGradientBrush>
-              </Border.Background>
-            </Border>
-          </Border>
+                     Foreground="#FFA8A8AF" Margin="0,1,0,0"
+                     TextTrimming="CharacterEllipsis" MaxWidth="250"/>
         </StackPanel>
       </Grid>
     </Border>
+
+    <!-- Barre rouge fine qui "ecrit" le texte -->
+    <Border x:Name="Writer" Width="3" Height="56" CornerRadius="1.5"
+            HorizontalAlignment="Left" VerticalAlignment="Center" Opacity="0">
+      <Border.RenderTransform><TranslateTransform x:Name="WriterT" X="16"/></Border.RenderTransform>
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+          <GradientStop Color="#FFFF4D45" Offset="0"/>
+          <GradientStop Color="#FFED1C24" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+      <Border.Effect>
+        <DropShadowEffect Color="#FFED1C24" BlurRadius="10" ShadowDepth="0" Opacity="0.9"/>
+      </Border.Effect>
+    </Border>
+
+    <!-- 3 barres rouges (sortie) qui balaient de droite vers gauche -->
+    <Border x:Name="CovLight" Width="340" Height="76" CornerRadius="12" Background="#FFFF564D"
+            HorizontalAlignment="Left" VerticalAlignment="Top">
+      <Border.RenderTransform><TranslateTransform x:Name="CovLT" X="360"/></Border.RenderTransform>
+    </Border>
+    <Border x:Name="CovMid" Width="340" Height="76" CornerRadius="12" Background="#FFED1C24"
+            HorizontalAlignment="Left" VerticalAlignment="Top">
+      <Border.RenderTransform><TranslateTransform x:Name="CovMT" X="360"/></Border.RenderTransform>
+    </Border>
+    <Border x:Name="CovDark" Width="340" Height="76" CornerRadius="12" Background="#FFA10E13"
+            HorizontalAlignment="Left" VerticalAlignment="Top">
+      <Border.RenderTransform><TranslateTransform x:Name="CovDT" X="360"/></Border.RenderTransform>
+    </Border>
   </Grid>
+
   <Window.Triggers>
     <EventTrigger RoutedEvent="FrameworkElement.Loaded">
       <BeginStoryboard>
         <Storyboard>
-          <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
-                           From="0" To="1" Duration="0:0:0.35"/>
-          <DoubleAnimation Storyboard.TargetName="SlideT" Storyboard.TargetProperty="X"
-                           From="520" To="0" Duration="0:0:0.55">
-            <DoubleAnimation.EasingFunction><QuinticEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+          <!-- 1) Panneau gris glisse de gauche a droite -->
+          <DoubleAnimation Storyboard.TargetName="CardT" Storyboard.TargetProperty="X"
+                           From="-360" To="0" Duration="0:0:0.22">
+            <DoubleAnimation.EasingFunction><ExponentialEase EasingMode="EaseOut" Exponent="6"/></DoubleAnimation.EasingFunction>
           </DoubleAnimation>
-          <DoubleAnimation Storyboard.TargetName="BadgeScale" Storyboard.TargetProperty="ScaleX"
-                           From="0.5" To="1" BeginTime="0:0:0.12" Duration="0:0:0.5">
-            <DoubleAnimation.EasingFunction><BackEase EasingMode="EaseOut" Amplitude="0.6"/></DoubleAnimation.EasingFunction>
+          <DoubleAnimation Storyboard.TargetName="Shadow" Storyboard.TargetProperty="Opacity"
+                           From="0" To="0.45" BeginTime="0:0:0.14" Duration="0:0:0.22"/>
+
+          <!-- 2) Barre rouge passe et ecrit le texte -->
+          <DoubleAnimation Storyboard.TargetName="Writer" Storyboard.TargetProperty="Opacity"
+                           From="0" To="1" BeginTime="0:0:0.18" Duration="0:0:0.06"/>
+          <DoubleAnimation Storyboard.TargetName="WriterT" Storyboard.TargetProperty="X"
+                           From="16" To="322" BeginTime="0:0:0.20" Duration="0:0:0.32">
+            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseInOut"/></DoubleAnimation.EasingFunction>
           </DoubleAnimation>
-          <DoubleAnimation Storyboard.TargetName="BadgeScale" Storyboard.TargetProperty="ScaleY"
-                           From="0.5" To="1" BeginTime="0:0:0.12" Duration="0:0:0.5">
-            <DoubleAnimation.EasingFunction><BackEase EasingMode="EaseOut" Amplitude="0.6"/></DoubleAnimation.EasingFunction>
-          </DoubleAnimation>
-          <DoubleAnimation Storyboard.TargetName="Glow" Storyboard.TargetProperty="Opacity"
-                           From="0" To="0.85" Duration="0:0:0.6"/>
-          <DoubleAnimation Storyboard.TargetName="Sweep" Storyboard.TargetProperty="Width"
-                           From="0" To="240" BeginTime="0:0:0.15" Duration="0:0:0.75">
-            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
-          </DoubleAnimation>
-          <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
-                           To="0" BeginTime="0:0:2.05" Duration="0:0:0.45"/>
-          <DoubleAnimation Storyboard.TargetName="SlideT" Storyboard.TargetProperty="X"
-                           To="90" BeginTime="0:0:2.05" Duration="0:0:0.45">
-            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseIn"/></DoubleAnimation.EasingFunction>
-          </DoubleAnimation>
+          <RectAnimation Storyboard.TargetName="ContentClip" Storyboard.TargetProperty="Rect"
+                         From="0,0,0,76" To="0,0,320,76" BeginTime="0:0:0.20" Duration="0:0:0.32">
+            <RectAnimation.EasingFunction><CubicEase EasingMode="EaseInOut"/></RectAnimation.EasingFunction>
+          </RectAnimation>
+          <DoubleAnimation Storyboard.TargetName="Writer" Storyboard.TargetProperty="Opacity"
+                           To="0" BeginTime="0:0:0.50" Duration="0:0:0.12"/>
+
+          <!-- 3) PAUSE ~1.25s (de ~0.52 a ~1.77) -->
+
+          <!-- 4a) 3 barres rouges : balayage droite -> gauche, decalees ~20% -->
+          <DoubleAnimation Storyboard.TargetName="CovLT" Storyboard.TargetProperty="X"
+                           From="360" To="0" BeginTime="0:0:1.77" Duration="0:0:0.42"/>
+          <DoubleAnimation Storyboard.TargetName="CovMT" Storyboard.TargetProperty="X"
+                           From="360" To="0" BeginTime="0:0:1.855" Duration="0:0:0.42"/>
+          <DoubleAnimation Storyboard.TargetName="CovDT" Storyboard.TargetProperty="X"
+                           From="360" To="0" BeginTime="0:0:1.94" Duration="0:0:0.42"/>
+
+          <!-- 4b) Disparition gauche -> droite (avant que la derniere barre arrive a moitie) -->
+          <RectAnimation Storyboard.TargetName="EraseClip" Storyboard.TargetProperty="Rect"
+                         From="0,0,340,76" To="340,0,0,76" BeginTime="0:0:2.06" Duration="0:0:0.30">
+            <RectAnimation.EasingFunction><ExponentialEase EasingMode="EaseIn" Exponent="5"/></RectAnimation.EasingFunction>
+          </RectAnimation>
         </Storyboard>
       </BeginStoryboard>
     </EventTrigger>
@@ -212,7 +249,6 @@ function Show-Toast {
     $win.FindName('IconPath').Data = [Windows.Media.Geometry]::Parse($icon)
     $win.Left = -10000; $win.Top = -10000   # hors-ecran le temps de mesurer
 
-    # Fenetre click-through + sans focus + cachee de alt-tab
     $win.Add_Loaded({
         try {
             $sig = @'
@@ -231,17 +267,17 @@ public static class WinEx {
         } catch { Write-Log "exstyle: $($_.Exception.Message)" }
 
         $wa = [System.Windows.SystemParameters]::WorkArea
-        $win.Left = $wa.Right  - $win.ActualWidth  + 26   # marge interne 44 - gap visible 18
-        $win.Top  = $wa.Bottom - $win.ActualHeight + 30   # marge interne 44 - gap visible 14
+        $margin = 32; $cardH = 76
+        $win.Left = $wa.Left + $GapLeftPx - $margin
+        $win.Top  = $wa.Bottom - ($wa.Height * $BottomPercent) - $margin - $cardH
     })
 
-    # Fermeture auto a la fin de l'anim
     $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds($ToastDurationMs)
+    $timer.Interval = [TimeSpan]::FromMilliseconds($CloseMs)
     $timer.Add_Tick({ $timer.Stop(); $win.Close() })
     $timer.Start()
 
-    [void]$win.ShowDialog()
+    try { [void]$win.ShowDialog() } catch { Write-Log "ShowDialog: $($_.Exception.Message)" }
 }
 
 # ============================== MAIN ==========================================
@@ -293,17 +329,22 @@ $devId   = $dev.'Command-Line Friendly ID'
 $devName = if ($dev.Name) { $dev.Name } else { $dev.'Device Name' }
 Write-Log "Cible: $mode | $devName | $devId"
 
-# --- 1) Definit le peripherique par defaut (tous les roles) -----------------
+# ========================= ACTION EN PRIORITE ================================
+# 1) Definit le peripherique par defaut (tous les roles) -- le son bascule ici
 & $SVCL /SetDefault "$devId" all 2>$null | Out-Null
 
-# --- 2) Deplace TOUTES les applis en cours vers ce peripherique -------------
+# 2) Deplace TOUTES les applis en cours vers ce peripherique
+#    (on saute celles deja sur la bonne sortie)
 $pids = $items |
-    Where-Object { $_.Type -eq 'Application' -and $_.Direction -eq 'Render' -and $_.'Process ID' } |
+    Where-Object {
+        $_.Type -eq 'Application' -and $_.Direction -eq 'Render' -and $_.'Process ID' -and
+        ($_.'Device Name' -ne $dev.'Device Name')
+    } |
     Select-Object -ExpandProperty 'Process ID' -Unique
 foreach ($p in $pids) {
     & $SVCL /SetAppDefault "$devId" all $p 2>$null | Out-Null
 }
 Write-Log ("Applis deplacees : {0}" -f ($pids -join ', '))
 
-# --- 3) Animation -----------------------------------------------------------
+# ============================= ANIMATION =====================================
 Show-Toast -Mode $mode -DeviceName $devName
