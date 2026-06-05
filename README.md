@@ -1,97 +1,125 @@
-# Switch Audio Écran / Casque — guide rapide
+# audio-switch
 
-Un script qui, en une touche : **change la sortie audio par défaut**, **déplace toutes les applis déjà ouvertes** vers le bon périphérique, puis affiche une **animation rouge façon AMD** en bas à gauche (remontée d'environ 20 % depuis le bas). L'action (la bascule) est faite **en priorité**, l'animation se lance **après**.
+Switch your **default audio output** with a single key — and actually **move every
+running app** to the new device — then get a fast, slick **AMD-style overlay** telling
+you where the sound went. Built to be bound to a **Stream Deck** (or any hotkey), but
+works fine from the command line too.
 
-## 1. Installation (2 minutes)
-
-1. Mets ces fichiers dans un dossier, par ex. `C:\Tools\AudioSwitch\` :
-   - `audio-switch.ps1`
-   - `Ecran.vbs`
-   - `Casque.vbs`
-2. Télécharge **SoundVolumeCommandLine (svcl.exe)** de NirSoft :
-   https://www.nirsoft.net/utils/sound_volume_command_line.html
-   Dézippe-le et place **`svcl.exe` dans le même dossier** que le script.
-
-C'est tout. Pas besoin des droits administrateur.
-
-## 2. Vérifier les noms de périphériques
-
-Les noms sont déjà pré-réglés (`VG34VQL3A` pour l'écran, `BlackShark` pour le casque). Pour vérifier, ouvre un PowerShell dans le dossier et lance :
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 list
-```
-
-Ça affiche tous les périphériques de sortie + les applis actives. Si un nom ne correspond pas, ouvre `audio-switch.ps1` et ajuste les deux lignes du bloc **CONFIG** en haut :
-
-```powershell
-$FragmentEcran  = 'VG34VQL3A'
-$FragmentCasque = 'BlackShark'
-```
-
-Mets juste un bout de nom **unique** à chaque appareil (peu importe la casse).
-
-## 3. Tester
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 1   # -> Écran
-powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 2   # -> Casque
-```
-
-Le son bascule instantanément, les applis en cours suivent, puis l'animation apparaît. (Les arguments `--1` / `--2` marchent aussi.)
-
-## 4. Brancher au Stream Deck
-
-Ajoute deux boutons avec l'action **« Système » → « Ouvrir »** :
-
-| Bouton | Fichier à ouvrir |
-|--------|------------------|
-| Écran  | `C:\Tools\AudioSwitch\Ecran.vbs` |
-| Casque | `C:\Tools\AudioSwitch\Casque.vbs` |
-
-Les `.vbs` lancent le script **sans aucune fenêtre noire qui clignote**. Tu peux appuyer aussi vite que tu veux.
-
-> Variante `.cmd` si besoin :
-> ```bat
-> @echo off
-> powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0audio-switch.ps1" 1
-> ```
-> (mets `2` pour le casque). Le `.vbs` reste plus propre car zéro flash.
-
-## 5. L'animation (ce qu'elle fait)
-
-Séquence, en bas à gauche, remontée de ~20 % :
-
-1. Le panneau gris foncé AMD **glisse depuis la gauche**.
-2. Une **barre fine rouge** balaie de gauche à droite et **« écrit »** l'icône + le texte (`SORTIE ÉCRAN` / `SORTIE CASQUE` + le nom du périphérique).
-3. **Pause ~1,25 s** avec une légère ombre portée.
-4. **3 barres rouges** de teintes différentes balaient de droite à gauche, décalées d'environ 20 % chacune (la dernière recouvre toute la zone)…
-5. …mais avant que la dernière n'atteigne la moitié, **tout disparaît de gauche à droite**.
-
-## 6. Personnalisation
-
-Tout en haut du script (`audio-switch.ps1`), bloc **CONFIG** :
-
-- `$FragmentEcran` / `$FragmentCasque` — bouts de nom pour reconnaître chaque appareil.
-- `$GapLeftPx` — marge depuis le bord gauche de l'écran (défaut `28` px).
-- `$BottomPercent` — hauteur depuis le bas (défaut `0.20` = 20 %). Mets `0` pour coller en bas, `0.4` pour plus haut.
-- `$CloseMs` — délai avant fermeture de la fenêtre (défaut `2550` ms). À garder ≥ à la durée de l'anim.
-
-Dans la fonction `Show-Toast` (bloc XAML) si tu veux toucher au look :
-
-- **Couleurs** (codes `#AARRGGBB`) : panneau gris `#FF202024`→`#FF141418` ; rouges AMD `#FFFF564D` (clair), `#FFED1C24` (AMD), `#FFA10E13` (foncé) ; barre qui écrit `#FFFF4D45`→`#FFED1C24`.
-- **Icônes** : variables `$IconMonitor` et `$IconHeadset` (chemins SVG 24×24).
-- **Vitesse / durées** : les `BeginTime` / `Duration` du `<Storyboard>`. La pause de 1,25 s correspond à l'écart entre la fin de l'écriture (~0,52 s) et le départ des barres de sortie (~1,77 s).
-
-## Dépannage
-
-- **Rien ne se passe** : ouvre `audio-switch.log` (créé à côté du script) — il note la cible trouvée, les applis déplacées, et les erreurs.
-- **« svcl.exe introuvable »** : `svcl.exe` doit être dans le même dossier que `audio-switch.ps1`.
-- **« aucun périphérique ne correspond »** : relance `... list` et corrige les fragments.
-- **Une appli têtue ne suit pas** : certaines applis (jeux en mode exclusif, apps qui n'ouvrent le flux audio qu'une fois) ne se laissent re-router qu'au prochain son. Bascule avant de lancer le son, ou coupe/relance le son dans l'appli.
+Windows can change the default output, but it leaves apps that are **already playing**
+stuck on the old device. This tool fixes that: it flips the default *and* re-routes
+each running app in one go.
 
 ---
 
-### Comment ça marche (vite fait)
+## Features
 
-`svcl.exe /SetDefault` change la sortie par défaut. Mais Windows ne déplace **pas** les applis déjà ouvertes — c'est pour ça qu'avec EarTrumpet elles restaient collées sur l'ancienne sortie. Le script règle ça : il énumère tous les flux audio actifs (un seul appel `/scomma`), fait `/SetDefault`, puis `/SetAppDefault` par PID sur chaque appli pas déjà sur la bonne sortie. Tout bascule d'un coup, et seulement ensuite l'overlay WPF se charge — comme ça la bascule reste prioritaire et instantanée.
+- One key per device (e.g. key 1 -> monitor, key 2 -> headset).
+- Moves **already-running** apps to the new device (the part Windows skips).
+- Animated overlay: dark panel slides in -> a thin red bar "writes" the label -> short
+  hold -> red bars sweep across and the whole thing wipes away. Fast and unobtrusive.
+- Pick the **corner** (top-right by default) and it adapts to **any resolution / DPI**
+  (tested target: 3440x1440 ultrawide).
+- **Zero-config installer**: `setup.cmd` downloads the dependency and lets you pick
+  your devices from a list.
+- No admin rights required.
+
+## Requirements
+
+- Windows 10 or 11.
+- Windows PowerShell (built in — nothing to install).
+- [`svcl.exe`](https://www.nirsoft.net/utils/sound_volume_command_line.html) (NirSoft
+  SoundVolumeCommandLine) — **downloaded automatically** by the installer. It is *not*
+  bundled in this repo (it has its own freeware license).
+
+## Quick start
+
+1. Download this folder (or `git clone` it) somewhere permanent, e.g.
+   `C:\Tools\audio-switch\`.
+2. Double-click **`setup.cmd`**. It will:
+   - download `svcl.exe` if needed,
+   - list your output devices,
+   - let you assign two of them to keys 1 and 2 (label + icon),
+   - choose the overlay corner,
+   - write the config and generate the Stream Deck launchers.
+3. In Stream Deck, add two buttons with the action **System -> Open**, pointing at the
+   two generated `.vbs` files (the installer prints their names).
+
+That's it. Tap a key — the sound switches and the overlay appears.
+
+## Manual usage
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 1      # key 1
+powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 2      # key 2
+powershell -ExecutionPolicy Bypass -File .\audio-switch.ps1 list   # show devices + active apps
+```
+
+The `.vbs` launchers run the same thing **with no console window flashing**, which is
+what you want for a Stream Deck button.
+
+## Configuration
+
+Settings live in `audio-switch.config.json` (created by the installer; see
+`audio-switch.config.example.json` for the shape). If the file is missing, the script
+falls back to built-in defaults.
+
+| Field | Meaning |
+|-------|---------|
+| `slots.<n>.label` | Text shown in the overlay (displayed uppercase). |
+| `slots.<n>.icon` | `monitor`, `headset`, or `speaker`. |
+| `slots.<n>.id` | Exact device id (`Command-Line Friendly ID`). Used first — most reliable. |
+| `slots.<n>.fragment` | Optional fuzzy fallback (a unique part of the device name). |
+| `slots.<n>.name` | Device display name — fallback match and overlay subtitle source. |
+| `ui.corner` | `TopRight` (default), `TopLeft`, `BottomRight`, `BottomLeft`. |
+| `ui.gapX` / `ui.gapY` | Margins from the corner, in pixels. |
+| `ui.closeMs` | How long the overlay window stays before closing (ms). |
+
+Device matching tries `id` -> `fragment` -> `name`, so even if a device id changes
+after a reconnection, the name still resolves it.
+
+### Tweaking the animation
+
+Colours, speeds, and the hold duration are in the `<Storyboard>` inside the
+`Show-Toast` function in `audio-switch.ps1`. The reds are `#FF564D` (light),
+`#ED1C24` (AMD red), `#A10E13` (dark); the panel is the `#202024`->`#141418` gradient.
+The ~1.25 s hold is the gap between the end of the "write" (~0.52 s) and the start of
+the exit bars (~1.77 s).
+
+## Performance / latency
+
+The actual switch is just a couple of `svcl` calls and is effectively instant. The
+device default is set **first** (one call), then running apps are moved, and only
+**after that** does the overlay (WPF) load — so audio never waits on the animation.
+Apps already on the target are skipped.
+
+If a key press still feels slightly delayed, the cost is almost always **PowerShell
+process startup**, not this script. The launchers already use `-NoProfile` to minimise
+it. For *truly* instant switching you'd avoid spawning a process per press — e.g. keep
+a resident listener or trigger the switch from an always-running AutoHotkey script.
+The log (`audio-switch.log`) records elapsed milliseconds at each stage and a final
+`SWITCH DONE in ...ms`, so you can see exactly where the time goes.
+
+## How it works
+
+`svcl /SetDefault` changes the default output, but Windows does **not** move streams
+that are already open — that's why apps stayed on the old device. The script enumerates
+every active audio stream (one `/scomma` call), sets the default, then calls
+`svcl /SetAppDefault` per process id for each app not already on the target. Everything
+moves together, then the overlay is drawn.
+
+## Troubleshooting
+
+- **Nothing happens** — open `audio-switch.log` (next to the script): it logs the
+  resolved device, how many apps moved, timings, and any error.
+- **"svcl.exe is missing"** — run `setup.cmd`, or drop `svcl.exe` next to the script.
+- **"no output device matched"** — re-run `setup.cmd` and reselect the device.
+- **A stubborn app won't follow** — some apps (games in *exclusive* mode, or apps that
+  open the audio stream only once) only re-route on their next sound. Switch before
+  starting the sound, or toggle the audio in that app.
+- **Overlay on the wrong monitor** — it appears on the primary monitor's chosen corner.
+
+## Credits & license
+
+- Uses [NirSoft SoundVolumeCommandLine](https://www.nirsoft.net/utils/sound_volume_command_line.html)
+  (`svcl.exe`) by Nir Sofer — freeware, fetched at setup time, not redistributed here.
+- This project is released under the [MIT License](LICENSE).

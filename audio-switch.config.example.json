@@ -1,0 +1,24 @@
+{
+  "slots": {
+    "1": {
+      "label": "Sortie Écran",
+      "icon": "monitor",
+      "id": "High Definition Audio Device\\Device\\Speakers\\Render",
+      "fragment": "VG34VQL3A",
+      "name": "VG34VQL3A (AMD High Definition Audio)"
+    },
+    "2": {
+      "label": "Sortie Casque",
+      "icon": "headset",
+      "id": "Razer BlackShark V2 X USB\\Device\\Speakers\\Render",
+      "fragment": "BlackShark",
+      "name": "Haut-parleurs (Razer BlackShark V2 X USB)"
+    }
+  },
+  "ui": {
+    "corner": "TopRight",
+    "gapX": 28,
+    "gapY": 40,
+    "closeMs": 2550
+  }
+}

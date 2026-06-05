@@ -1,0 +1,6 @@
+# Downloaded at setup time, not redistributed
+svcl.exe
+
+# Machine-specific config and runtime logs
+audio-switch.config.json
+audio-switch.log
