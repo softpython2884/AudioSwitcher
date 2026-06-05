@@ -1,6 +1,6 @@
-' Lanceur "Sortie Ecran" pour Stream Deck (aucune fenetre ne s'affiche)
-Dim fso, dossier, cmd
+' Auto-generated launcher for Stream Deck (no window flashes)
+Dim fso, here, cmd
 Set fso = CreateObject("Scripting.FileSystemObject")
-dossier = fso.GetParentFolderName(WScript.ScriptFullName)
-cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File """ & dossier & "\audio-switch.ps1"" 1"
+here = fso.GetParentFolderName(WScript.ScriptFullName)
+cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File """ & here & "\audio-switch.ps1"" 1"
 CreateObject("WScript.Shell").Run cmd, 0, False

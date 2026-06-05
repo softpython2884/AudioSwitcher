@@ -1,21 +1,13 @@
 ﻿<#
 ================================================================================
   setup.ps1  -  One-shot configurator for audio-switch.
-
-  - Downloads svcl.exe (NirSoft) automatically if it's missing.
-  - Lists your output devices and lets you assign two of them to keys 1 and 2.
-  - Writes audio-switch.config.json.
-  - Generates Stream Deck launchers (.vbs, no console flash).
-
-  Just double-click setup.cmd. (Or: powershell -ExecutionPolicy Bypass -File setup.ps1)
+  Double-click setup.cmd. (Or: powershell -ExecutionPolicy Bypass -File setup.ps1)
 ================================================================================
 #>
-
 $ErrorActionPreference = 'Stop'
 $root    = $PSScriptRoot
 $svcl    = Join-Path $root 'svcl.exe'
 $cfgPath = Join-Path $root 'audio-switch.config.json'
-$psMain  = Join-Path $root 'audio-switch.ps1'
 
 function Line { Write-Host ('-' * 64) -ForegroundColor DarkGray }
 function To-Ascii([string]$s) {
@@ -25,10 +17,7 @@ function To-Ascii([string]$s) {
 }
 
 Clear-Host
-Line
-Write-Host "  audio-switch  -  setup" -ForegroundColor Cyan
-Line
-Write-Host ""
+Line; Write-Host "  audio-switch  -  setup" -ForegroundColor Cyan; Line; Write-Host ""
 
 # --- 1) Ensure svcl.exe ------------------------------------------------------
 if (-not (Test-Path $svcl)) {
@@ -42,7 +31,7 @@ if (-not (Test-Path $svcl)) {
         Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -UserAgent 'Mozilla/5.0'
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         $exe = Get-ChildItem -Path $tmp -Recurse -Filter 'svcl.exe' | Select-Object -First 1
-        if (-not $exe) { throw "svcl.exe not found inside the downloaded archive." }
+        if (-not $exe) { throw "svcl.exe not found inside the archive." }
         Copy-Item $exe.FullName $svcl -Force
         try { Unblock-File $svcl } catch {}
         Remove-Item $zip -ErrorAction SilentlyContinue
@@ -50,28 +39,20 @@ if (-not (Test-Path $svcl)) {
         Write-Host "  -> svcl.exe ready." -ForegroundColor Green
     } catch {
         Write-Host "  Download failed: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host "  Please download svcl.exe manually and drop it next to this script:" -ForegroundColor Yellow
+        Write-Host "  Download svcl.exe manually next to this script:" -ForegroundColor Yellow
         Write-Host "    https://www.nirsoft.net/utils/sound_volume_command_line.html"
-        Read-Host "`nPress Enter to close"
-        exit 1
+        Read-Host "`nPress Enter to close"; exit 1
     }
-} else {
-    Write-Host "svcl.exe found." -ForegroundColor Green
-}
+} else { Write-Host "svcl.exe found." -ForegroundColor Green }
 Write-Host ""
 
-# --- 2) Enumerate output (render) devices ------------------------------------
+# --- 2) Enumerate output devices ---------------------------------------------
 $csv = Join-Path $env:TEMP ("svcl_setup_{0}.csv" -f ([guid]::NewGuid().ToString('N')))
 & $svcl /scomma "$csv" /Columns "Name,Type,Direction,Device Name,Default,Command-Line Friendly ID" 2>$null | Out-Null
 if (-not (Test-Path $csv)) { Write-Host "svcl did not return data." -ForegroundColor Red; Read-Host "`nPress Enter to close"; exit 1 }
-$all = Import-Csv -Path $csv
-Remove-Item $csv -ErrorAction SilentlyContinue
-
+$all = Import-Csv -Path $csv; Remove-Item $csv -ErrorAction SilentlyContinue
 $devices = @($all | Where-Object { $_.Type -eq 'Device' -and $_.Direction -eq 'Render' -and $_.Name })
-if ($devices.Count -lt 2) {
-    Write-Host "Need at least 2 output devices, found $($devices.Count)." -ForegroundColor Red
-    Read-Host "`nPress Enter to close"; exit 1
-}
+if ($devices.Count -lt 2) { Write-Host "Need at least 2 output devices, found $($devices.Count)." -ForegroundColor Red; Read-Host "`nPress Enter to close"; exit 1 }
 
 Write-Host "Output devices detected:" -ForegroundColor Cyan
 for ($i = 0; $i -lt $devices.Count; $i++) {
@@ -88,66 +69,43 @@ function Read-DeviceIndex([string]$prompt, [int]$count) {
         Write-Host "  Enter a number between 1 and $count." -ForegroundColor DarkYellow
     }
 }
-
 function Guess([string]$name) {
     $n = $name.ToLower()
-    if ($n -match 'head|casque|razer|blackshark|arctis|hyperx|steelseries|logitech g|earbud|airpod|wh-|wf-') { return @{ label = 'Headset'; icon = 'headset' } }
-    if ($n -match 'monitor|display|screen|tv|hdmi|odyssey|vg\d|lg ultra|high definition audio|nvidia|amd ') { return @{ label = 'Monitor'; icon = 'monitor' } }
-    return @{ label = 'Speakers'; icon = 'speaker' }
+    if ($n -match 'head|casque|razer|blackshark|arctis|hyperx|steelseries|logitech g|earbud|airpod|wh-|wf-') { return @{ label='Headset'; icon='headset' } }
+    if ($n -match 'monitor|display|screen|tv|hdmi|odyssey|vg\d|lg ultra|high definition audio|nvidia|amd ')   { return @{ label='Monitor'; icon='monitor' } }
+    return @{ label='Speakers'; icon='speaker' }
 }
-
 function Read-Slot([int]$num, $devices) {
-    Write-Host ""
-    Line
-    Write-Host ("  KEY $num" ) -ForegroundColor Cyan
-    Line
+    Write-Host ""; Line; Write-Host ("  KEY $num") -ForegroundColor Cyan; Line
     $idx = Read-DeviceIndex "Which device for key $num? (number)" $devices.Count
-    $dev = $devices[$idx]
-    $g   = Guess $dev.Name
+    $dev = $devices[$idx]; $g = Guess $dev.Name
     Write-Host ("Selected: {0}" -f $dev.Name) -ForegroundColor Green
-
-    $label = Read-Host ("Label shown in the overlay [{0}]" -f $g.label)
-    if (-not $label) { $label = $g.label }
-
-    $icon = Read-Host ("Icon - monitor / headset / speaker [{0}]" -f $g.icon)
-    if (-not $icon) { $icon = $g.icon }
-    $icon = $icon.ToLower()
-    if ($icon -notin @('monitor','headset','speaker')) { $icon = $g.icon }
-
-    return [ordered]@{
-        label    = $label
-        icon     = $icon
-        id       = $dev.'Command-Line Friendly ID'
-        fragment = ''
-        name     = $dev.Name
-    }
+    $label = Read-Host ("Label shown in the overlay [{0}]" -f $g.label); if (-not $label) { $label = $g.label }
+    $icon  = Read-Host ("Icon - monitor / headset / speaker [{0}]" -f $g.icon); if (-not $icon) { $icon = $g.icon }
+    $icon  = $icon.ToLower(); if ($icon -notin @('monitor','headset','speaker')) { $icon = $g.icon }
+    return [ordered]@{ label=$label; icon=$icon; id=$dev.'Command-Line Friendly ID'; fragment=''; name=$dev.Name }
 }
 
 $slot1 = Read-Slot 1 $devices
 $slot2 = Read-Slot 2 $devices
-if ($slot1.id -eq $slot2.id) {
-    Write-Host "`nKey 1 and key 2 point to the same device - that's allowed but unusual." -ForegroundColor DarkYellow
-}
 
-# --- 3) Overlay corner -------------------------------------------------------
-Write-Host ""
-Line
-Write-Host "  OVERLAY POSITION" -ForegroundColor Cyan
-Line
-$corner = Read-Host "Corner - TopRight / TopLeft / BottomRight / BottomLeft [TopRight]"
-if (-not $corner) { $corner = 'TopRight' }
+# --- 3) Overlay options ------------------------------------------------------
+Write-Host ""; Line; Write-Host "  OVERLAY" -ForegroundColor Cyan; Line
+$corner = Read-Host "Corner - TopRight / TopLeft / BottomRight / BottomLeft [TopRight]"; if (-not $corner) { $corner = 'TopRight' }
 $map = @{ topright='TopRight'; topleft='TopLeft'; bottomright='BottomRight'; bottomleft='BottomLeft' }
 $corner = $map[$corner.ToLower()]; if (-not $corner) { $corner = 'TopRight' }
+$dynAns = Read-Host "Dynamic colours sampled from the screen? (y/N)"
+$dyn = ($dynAns -match '^(y|yes|o|oui)$')
 
 # --- 4) Write config.json ----------------------------------------------------
 $config = [ordered]@{
     slots = [ordered]@{ '1' = $slot1; '2' = $slot2 }
-    ui    = [ordered]@{ corner = $corner; gapX = 28; gapY = 40; closeMs = 2550 }
+    ui    = [ordered]@{ corner = $corner; gapX = 28; gapY = 40; closeMs = 2550; dynamicColors = $dyn }
 }
 $config | ConvertTo-Json -Depth 6 | Out-File -FilePath $cfgPath -Encoding UTF8
-Write-Host "`nSaved $([IO.Path]::GetFileName($cfgPath))" -ForegroundColor Green
+Write-Host "`nSaved audio-switch.config.json" -ForegroundColor Green
 
-# --- 5) Generate Stream Deck launchers (.vbs) --------------------------------
+# --- 5) Generate launchers (.vbs) + fast triggers (.cmd) ---------------------
 $vbsTemplate = @'
 ' Auto-generated launcher for Stream Deck (no window flashes)
 Dim fso, here, cmd
@@ -156,7 +114,6 @@ here = fso.GetParentFolderName(WScript.ScriptFullName)
 cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File """ & here & "\audio-switch.ps1"" __SLOT__"
 CreateObject("WScript.Shell").Run cmd, 0, False
 '@
-
 function New-Launcher([string]$label, [int]$slotNum) {
     $name = (To-Ascii $label) -replace '[^A-Za-z0-9]+', ''
     if (-not $name) { $name = "slot$slotNum" }
@@ -166,23 +123,39 @@ function New-Launcher([string]$label, [int]$slotNum) {
 }
 $f1 = New-Launcher $slot1.label 1
 $f2 = New-Launcher $slot2.label 2
-Write-Host ("Created launchers:`n  {0}`n  {1}" -f ([IO.Path]::GetFileName($f1)), ([IO.Path]::GetFileName($f2))) -ForegroundColor Green
 
-# --- 6) Optional test --------------------------------------------------------
-Write-Host ""
-$test = Read-Host "Test switch to KEY 1 now? (y/N)"
-if ($test -match '^(y|yes|o|oui)$') {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $psMain 1
-}
+"@echo off`r`n>`"%~dp0.trigger`" echo 1" | Set-Content -Path (Join-Path $root 'trigger-1.cmd') -Encoding ASCII
+"@echo off`r`n>`"%~dp0.trigger`" echo 2" | Set-Content -Path (Join-Path $root 'trigger-2.cmd') -Encoding ASCII
+Write-Host "Created launchers (normal mode): $([IO.Path]::GetFileName($f1)), $([IO.Path]::GetFileName($f2))" -ForegroundColor Green
+Write-Host "Created triggers  (instant mode): trigger-1.cmd, trigger-2.cmd" -ForegroundColor Green
+
+# --- 6) Optional instant mode (resident daemon) ------------------------------
+Write-Host ""; Line; Write-Host "  INSTANT MODE (optional)" -ForegroundColor Cyan; Line
+Write-Host "Keeps a tiny resident helper running so a key press doesn't pay PowerShell/WPF"
+Write-Host "startup. It launches at login. Use trigger-1.cmd / trigger-2.cmd on the keys."
+$instAns = Read-Host "Enable instant mode now? (y/N)"
+if ($instAns -match '^(y|yes|o|oui)$') {
+    try {
+        $startup = [Environment]::GetFolderPath('Startup')
+        $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $startup 'audio-switch-daemon.lnk'))
+        $lnk.TargetPath = (Join-Path $root 'daemon-start.vbs'); $lnk.WorkingDirectory = $root; $lnk.Save()
+        Start-Process (Join-Path $root 'daemon-start.vbs')
+        Write-Host "  Instant mode enabled and running." -ForegroundColor Green
+        $useTriggers = $true
+    } catch { Write-Host "  Could not enable instant mode: $($_.Exception.Message)" -ForegroundColor Red; $useTriggers = $false }
+} else { $useTriggers = $false }
 
 # --- 7) Done -----------------------------------------------------------------
-Write-Host ""
-Line
-Write-Host "  ALL SET" -ForegroundColor Green
-Line
+Write-Host ""; Line; Write-Host "  ALL SET" -ForegroundColor Green; Line
 Write-Host "In Stream Deck, add two buttons -> action 'System: Open':"
-Write-Host ("   Key 1  ->  {0}" -f $f1)
-Write-Host ("   Key 2  ->  {0}" -f $f2)
+if ($useTriggers) {
+    Write-Host ("   Key 1  ->  {0}" -f (Join-Path $root 'trigger-1.cmd'))
+    Write-Host ("   Key 2  ->  {0}" -f (Join-Path $root 'trigger-2.cmd'))
+} else {
+    Write-Host ("   Key 1  ->  {0}" -f $f1)
+    Write-Host ("   Key 2  ->  {0}" -f $f2)
+    Write-Host "   (For the fastest response, re-run and enable instant mode, then use the trigger-*.cmd files.)"
+}
 Write-Host ""
-Write-Host "Re-run this setup any time to change devices, labels, or the corner."
+Write-Host "Re-run this setup any time to change devices, labels, corner, or colours."
 Read-Host "`nPress Enter to close"

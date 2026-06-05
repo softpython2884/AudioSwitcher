@@ -19,6 +19,7 @@
     "corner": "TopRight",
     "gapX": 28,
     "gapY": 40,
-    "closeMs": 2550
+    "closeMs": 2550,
+    "dynamicColors": false
   }
 }
